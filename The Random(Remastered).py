@@ -1,18 +1,15 @@
 # app.py
-# Streamlit 업다운 숫자 맞추기 게임 (Firestore 기록 저장 버전)
+# Streamlit 업다운 숫자 맞추기 게임 (Firestore 기록 저장 / Secrets는 TOML 표 방식)
 # 실행: streamlit run app.py
 
-import json
 import random
 import time
 from datetime import datetime
 
 import streamlit as st
 
-# Firebase Admin
 import firebase_admin
 from firebase_admin import credentials, firestore
-
 
 # -----------------------------
 # 난이도 설정
@@ -29,20 +26,19 @@ COL_PLAYERS = "updown_players"
 
 # -----------------------------
 # Firestore 초기화
+#   ✅ Secrets는 아래 형태로 넣는 전제:
+#   [firebase_service_account]
+#   type="service_account"
+#   ...
 # -----------------------------
 @st.cache_resource
 def get_db():
-    """
-    Streamlit 앱이 재실행되더라도 Firebase 초기화는 1번만 수행되도록 cache_resource 사용.
-    secrets에 firebase_service_account(JSON 문자열)가 있어야 함.
-    """
     if not firebase_admin._apps:
         if "firebase_service_account" not in st.secrets:
-            raise RuntimeError("Streamlit secrets에 'firebase_service_account'가 없습니다.")
+            raise RuntimeError("Streamlit secrets에 firebase_service_account가 없습니다.")
 
-        sa_json = st.secrets["firebase_service_account"]
-        sa_dict = json.loads(sa_json)
-
+        # ✅ JSON 문자열 파싱 없이 secrets dict 그대로 사용
+        sa_dict = dict(st.secrets["firebase_service_account"])
         cred = credentials.Certificate(sa_dict)
         firebase_admin.initialize_app(cred)
 
@@ -53,9 +49,8 @@ def get_db():
 # Firestore 기록 로직
 # -----------------------------
 def player_doc(db, name: str):
-    # 이름 그대로 doc id로 쓰면 공백/특수문자 문제가 생길 수 있어 안전하게 strip
-    doc_id = name.strip()
-    return db.collection(COL_PLAYERS).document(doc_id)
+    # 문서 ID는 이름을 그대로 쓰되, 양끝 공백만 제거
+    return db.collection(COL_PLAYERS).document(name.strip())
 
 
 def record_win(db, name: str, difficulty: str, attempts_used: int, seconds_used: float):
@@ -64,10 +59,7 @@ def record_win(db, name: str, difficulty: str, attempts_used: int, seconds_used:
 
     def txn_update(transaction):
         snap = ref.get(transaction=transaction)
-        if snap.exists:
-            data = snap.to_dict()
-        else:
-            data = {}
+        data = snap.to_dict() if snap.exists else {}
 
         plays = int(data.get("plays", 0)) + 1
         wins = int(data.get("wins", 0)) + 1
@@ -96,7 +88,6 @@ def record_win(db, name: str, difficulty: str, attempts_used: int, seconds_used:
             "last_play": now_str,
             "by_difficulty": by_diff,
         }
-
         transaction.set(ref, new_data, merge=True)
 
     db.transaction()(txn_update)
@@ -108,10 +99,7 @@ def record_loss(db, name: str, difficulty: str):
 
     def txn_update(transaction):
         snap = ref.get(transaction=transaction)
-        if snap.exists:
-            data = snap.to_dict()
-        else:
-            data = {}
+        data = snap.to_dict() if snap.exists else {}
 
         plays = int(data.get("plays", 0)) + 1
         wins = int(data.get("wins", 0))
@@ -127,7 +115,6 @@ def record_loss(db, name: str, difficulty: str):
             "last_play": now_str,
             "by_difficulty": by_diff,
         }
-
         transaction.set(ref, new_data, merge=True)
 
     db.transaction()(txn_update)
@@ -135,8 +122,8 @@ def record_loss(db, name: str, difficulty: str):
 
 def get_leaderboard(db, limit: int = 10):
     """
-    best_attempts 오름차순(적을수록 좋음), 동점이면 best_time_sec 오름차순.
-    best_attempts가 없는(승리 기록 없는) 사람은 제외.
+    best_attempts가 있는 사람만 (승리 기록 있는 사람만) 랭킹에 포함.
+    best_attempts 오름차순, 동점이면 best_time_sec 오름차순.
     """
     q = (
         db.collection(COL_PLAYERS)
@@ -145,18 +132,19 @@ def get_leaderboard(db, limit: int = 10):
         .order_by("best_time_sec")
         .limit(limit)
     )
-    docs = q.stream()
 
     rows = []
-    for doc in docs:
+    for doc in q.stream():
         data = doc.to_dict()
-        rows.append({
-            "name": doc.id,
-            "best_attempts": data.get("best_attempts"),
-            "best_time_sec": data.get("best_time_sec"),
-            "wins": data.get("wins", 0),
-            "plays": data.get("plays", 0),
-        })
+        rows.append(
+            {
+                "name": doc.id,
+                "best_attempts": data.get("best_attempts"),
+                "best_time_sec": data.get("best_time_sec"),
+                "wins": data.get("wins", 0),
+                "plays": data.get("plays", 0),
+            }
+        )
     return rows
 
 
@@ -171,13 +159,14 @@ def init_state():
     st.session_state.setdefault("answer", None)
     st.session_state.setdefault("attempts_used", 0)
     st.session_state.setdefault("history", [])
+
     st.session_state.setdefault("message", "")
-    st.session_state.setdefault("status", "info")
+    st.session_state.setdefault("status", "info")  # info | success | error
 
     st.session_state.setdefault("start_time", None)
     st.session_state.setdefault("end_time", None)
 
-    st.session_state.setdefault("count_duplicates", False)
+    st.session_state.setdefault("count_duplicates", False)  # 중복 입력도 차감 여부
 
 
 def new_game():
@@ -237,7 +226,6 @@ def process_guess(db, guess: int):
 
     st.session_state.attempts_used += 1
     st.session_state.history.append(guess)
-
     remaining = max_attempts - st.session_state.attempts_used
 
     # 정답
@@ -252,18 +240,16 @@ def process_guess(db, guess: int):
         st.session_state.status = "success"
         st.session_state.phase = "end"
 
-        # Firestore 승리 기록 저장
         record_win(db, st.session_state.player_name, st.session_state.difficulty, st.session_state.attempts_used, seconds)
         return
 
-    # 실패(횟수 초과)
+    # 기회 소진 → 실패
     if remaining <= 0:
         st.session_state.end_time = time.time()
         st.session_state.message = f"⛔ 게임 종료! 정답은 {answer}였습니다."
         st.session_state.status = "error"
         st.session_state.phase = "end"
 
-        # Firestore 패배 기록 저장
         record_loss(db, st.session_state.player_name, st.session_state.difficulty)
         return
 
@@ -282,7 +268,7 @@ init_state()
 
 st.title("🎯 업다운 숫자 맞추기 (Firestore 기록 저장)")
 
-# DB 연결(사이드바/랭킹에서도 쓰므로 먼저 확보)
+# DB 연결
 try:
     db = get_db()
 except Exception as e:
@@ -290,7 +276,7 @@ except Exception as e:
     st.code(str(e))
     st.stop()
 
-# 사이드바
+# 사이드바: 설정 + 랭킹
 with st.sidebar:
     st.header("설정")
     st.session_state.difficulty = st.selectbox(
@@ -312,11 +298,12 @@ with st.sidebar:
         else:
             for i, row in enumerate(leaderboard, start=1):
                 t = "-" if row["best_time_sec"] is None else f'{row["best_time_sec"]:.2f}s'
-                st.write(f"{i}. **{row['name']}** — {row['best_attempts']}회 / {t} (승:{row['wins']}, 판:{row['plays']})")
+                st.write(
+                    f"{i}. **{row['name']}** — {row['best_attempts']}회 / {t} (승:{row['wins']}, 판:{row['plays']})"
+                )
     except Exception as e:
         st.warning("랭킹을 불러오지 못했어요.")
         st.code(str(e))
-
 
 # 화면 전환
 if st.session_state.phase == "start":
@@ -333,7 +320,6 @@ if st.session_state.phase == "start":
                 st.session_state.player_name = name
                 new_game()
                 st.rerun()
-
     with c2:
         st.caption("난이도/중복차감 옵션은 왼쪽에서 변경 가능")
 
@@ -399,3 +385,4 @@ elif st.session_state.phase == "end":
         if st.button("시작 화면"):
             reset_to_start()
             st.rerun()
+
