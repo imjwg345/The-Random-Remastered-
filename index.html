@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <title>The Random (Remastered)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="header">
+  <h1>🎯 The Random (Remastered)</h1>
+  <p class="sub">웹 게임 · 실시간 랭킹</p>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-view="game">게임</button>
+  <button class="tab" data-view="rank">랭킹</button>
+</nav>
+
+<main>
+
+<!-- ================= 게임 ================= -->
+<section id="viewGame" class="card">
+  <h2>🎮 업다운 게임</h2>
+
+  <label>닉네임</label>
+  <input id="nick" placeholder="닉네임 입력" />
+
+  <label>난이도</label>
+  <select id="difficulty">
+    <option value="쉬움">쉬움 (1~50)</option>
+    <option value="보통" selected>보통 (1~100)</option>
+    <option value="어려움">어려움 (1~500)</option>
+  </select>
+
+  <button id="btnStart">게임 시작</button>
+
+  <div id="status" class="status">게임을 시작하세요.</div>
+
+  <input id="guess" placeholder="숫자 입력" />
+  <button id="btnGuess">확인</button>
+
+  <div class="meta">
+    <span>남은 횟수: <b id="remain">-</b></span>
+    <span>범위: <b id="range">-</b></span>
+  </div>
+
+  <div class="history">
+    <b>입력 기록</b>
+    <div id="history">-</div>
+  </div>
+</section>
+
+<!-- ================= 랭킹 ================= -->
+<section id="viewRank" class="card" style="display:none;">
+  <h2>🏆 랭킹</h2>
+
+  <h3>오늘 TOP 10</h3>
+  <table>
+    <thead>
+      <tr><th>#</th><th>닉네임</th><th>시도</th><th>시간</th></tr>
+    </thead>
+    <tbody id="todayTbody">
+      <tr><td colspan="4">로딩 중...</td></tr>
+    </tbody>
+  </table>
+
+  <h3>최근 10게임</h3>
+  <table>
+    <thead>
+      <tr><th>시간</th><th>닉네임</th><th>결과</th><th>시도</th></tr>
+    </thead>
+    <tbody id="recentTbody">
+      <tr><td colspan="4">로딩 중...</td></tr>
+    </tbody>
+  </table>
+</section>
+
+</main>
+
+<footer class="footer">© The Random</footer>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
